@@ -173,12 +173,20 @@
     setTimeout(function () { t.remove(); }, 3400);
   }
 
+  var cheering = null;
   function jumpHero() {
     var a = $('#hero-actor');
     if (!a) return;
+    var tier = C.heroTier(summary.hero.level);
+    a.innerHTML = S.hero(tier, 'cheer');
     a.classList.remove('jump');
     void a.offsetWidth;
     a.classList.add('jump');
+    clearTimeout(cheering);
+    cheering = setTimeout(function () {
+      cheering = null;
+      if (a.isConnected) a.innerHTML = S.hero(tier, 'idle');
+    }, 900);
   }
 
   var blinkTimer = null;
@@ -186,10 +194,10 @@
     clearTimeout(blinkTimer);
     blinkTimer = setTimeout(function () {
       var a = $('#hero-actor');
-      if (a) {
+      if (a && !cheering) {
         var tier = C.heroTier(summary.hero.level);
-        a.innerHTML = S.hero(tier, true);
-        setTimeout(function () { if (a.isConnected) a.innerHTML = S.hero(tier, false); }, 160);
+        a.innerHTML = S.hero(tier, 'blink');
+        setTimeout(function () { if (a.isConnected && !cheering) a.innerHTML = S.hero(tier, 'idle'); }, 160);
       }
       scheduleBlink();
     }, 3200 + Math.random() * 2600);
@@ -201,7 +209,7 @@
       '<div class="levelup" data-act="levelup-close">' +
         '<div class="win" role="dialog" aria-modal="true" aria-labelledby="lu-title">' +
           '<h2 id="lu-title">Level up!</h2>' +
-          '<div class="lu-hero">' + S.hero(tier) + '</div>' +
+          '<div class="lu-hero">' + S.hero(tier, 'cheer') + '</div>' +
           '<p>' + esc(state.hero.name) + ' reached <b>level ' + level + '</b>. Title: ' + heroTitle(level) + '.</p>' +
           (tierChanged ? '<p>New armor unlocked.</p>' : '') +
           '<button class="btn primary" type="button" id="lu-ok" data-act="levelup-close">Onward</button>' +
