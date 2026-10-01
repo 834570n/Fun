@@ -1,0 +1,10 @@
+{
+  "name": "habit-quest",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A pixel-art RPG habit tracker with daily quests, streaks and stats",
+  "scripts": {
+    "start": "npx http-server -c-1 .",
+    "test": "node --test tests/*.test.js"
+  }
+}
