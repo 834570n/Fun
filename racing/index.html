@@ -1,0 +1,161 @@
+<title>Redline Circuit</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* One-screen landscape-first driving view: 3D canvas full-bleed, HUD floats on top. */
+  :root {
+    --bg: #12161a;
+    --panel: rgba(14, 18, 22, 0.72);
+    --ink: #eef1ea;
+    --dim: #9aa6a0;
+    --accent: #ffcf3a;
+    --gas: #4cc38a;
+    --brake: #ff5a4a;
+    --font-ui: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+    --font-num: "Barlow Semi Condensed", ui-monospace, monospace;
+    color-scheme: dark;
+  }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--ink); font-family: var(--font-ui);
+    overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none;
+    -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+  }
+  #view { position: fixed; inset: 0; }
+  #view canvas { display: block; width: 100%; height: 100%; }
+  .hud { position: fixed; pointer-events: none; font-variant-numeric: tabular-nums; }
+  #timing {
+    top: calc(8px + env(safe-area-inset-top, 0px)); left: max(12px, env(safe-area-inset-left, 0px));
+    background: var(--panel); border-radius: 6px; padding: 6px 10px; font-size: 13px; line-height: 1.35;
+    min-width: 132px;
+  }
+  #timing .cur { font-size: 22px; font-weight: 600; letter-spacing: 0.02em; }
+  #timing .row { display: flex; justify-content: space-between; gap: 10px; color: var(--dim); }
+  #timing .row b { color: var(--ink); font-weight: 600; }
+  #timing .inv { color: var(--brake); }
+  #msg { top: 22%; left: 0; right: 0; text-align: center; font-size: 30px; font-weight: 700; letter-spacing: 0.04em;
+    text-shadow: 0 2px 8px #000; opacity: 0; transition: opacity 0.3s; }
+  #minimap { top: calc(8px + env(safe-area-inset-top, 0px)); right: max(12px, env(safe-area-inset-right, 0px));
+    width: 132px; height: 92px; background: var(--panel); border-radius: 6px; }
+  #dash {
+    top: calc(8px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%);
+    background: var(--panel); border-radius: 8px; padding: 5px 12px 6px; text-align: center; min-width: 170px;
+  }
+  #dash .top { display: flex; align-items: baseline; justify-content: center; gap: 12px; }
+  #spd { font-size: 30px; font-weight: 700; line-height: 1; min-width: 2.2em; text-align: right; }
+  #gear { font-size: 30px; font-weight: 700; line-height: 1; color: var(--accent); min-width: 0.8em; }
+  #dash .unit { font-size: 11px; color: var(--dim); letter-spacing: 0.08em; text-transform: uppercase; }
+  #rpmbar { position: relative; height: 6px; background: rgba(255,255,255,0.12); border-radius: 3px; margin-top: 6px; overflow: hidden; }
+  #rpmfill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--gas); }
+  #rpmbar.shift #rpmfill { background: var(--brake); }
+  #aids { font-size: 10px; letter-spacing: 0.08em; color: var(--dim); margin-top: 4px; display: flex; gap: 8px; justify-content: center; }
+  #aids span.on { color: var(--accent); }
+  #tyres { display: grid; grid-template-columns: 9px 9px; gap: 3px 14px; justify-content: center; margin-top: 5px; }
+  #tyres i { display: block; width: 9px; height: 14px; border-radius: 2px; background: #3a4; }
+  #steerind { position: relative; height: 3px; margin: 7px 4px 2px; background: rgba(255,255,255,0.15); border-radius: 2px; }
+  #steerdot { position: absolute; top: -3px; width: 4px; height: 9px; margin-left: -2px; left: 50%; border-radius: 5px; background: var(--ink); }
+
+  /* touch controls */
+  .ctl { position: fixed; touch-action: none; }
+  #steerzone { left: 0; top: 0; bottom: 0; width: 46%; }
+  #pedals { right: max(12px, env(safe-area-inset-right, 0px)); bottom: calc(12px + env(safe-area-inset-bottom, 0px)); display: flex; gap: 12px; align-items: flex-end; }
+  .pedal { position: relative; width: 74px; height: 150px; border-radius: 10px; background: var(--panel);
+    border: 2px solid rgba(255,255,255,0.18); overflow: hidden; }
+  .pedal .fill { position: absolute; left: 0; right: 0; bottom: 0; height: 0; opacity: 0.55; }
+  #brakeP .fill { background: var(--brake); }
+  #gasP { height: 175px; }
+  #gasP .fill { background: var(--gas); }
+  .pedal .lbl { position: absolute; left: 0; right: 0; bottom: 8px; text-align: center; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; }
+  .btn { position: fixed; min-width: 46px; height: 40px; padding: 0 10px; border-radius: 8px; border: 2px solid rgba(255,255,255,0.2);
+    background: var(--panel); color: var(--ink); font: 700 13px var(--font-ui); letter-spacing: 0.06em; display: flex; align-items: center; justify-content: center; }
+  .btn:active, .btn.down { background: rgba(255,207,58,0.35); }
+  #hbBtn { right: calc(196px + env(safe-area-inset-right, 0px)); bottom: calc(12px + env(safe-area-inset-bottom, 0px)); height: 56px; }
+  #upBtn { right: calc(196px + env(safe-area-inset-right, 0px)); bottom: calc(124px + env(safe-area-inset-bottom, 0px)); }
+  #dnBtn { right: calc(196px + env(safe-area-inset-right, 0px)); bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+  #topbtns { position: fixed; top: calc(108px + env(safe-area-inset-top, 0px)); right: max(12px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 8px; }
+  #topbtns .btn { position: static; height: 34px; font-size: 11px; }
+  #steerhint { position: fixed; left: max(24px, env(safe-area-inset-left, 0px)); bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+    color: var(--dim); font-size: 12px; letter-spacing: 0.06em; pointer-events: none; }
+  #touchring { position: fixed; width: 64px; height: 64px; margin: -32px 0 0 -32px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.35); pointer-events: none; display: none; }
+
+  /* menu */
+  #menu { position: fixed; inset: 0; background: rgba(10, 13, 16, 0.86); display: flex; align-items: center; justify-content: center;
+    padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 12px; overflow-y: auto; }
+  #menu .card { max-width: 560px; width: 100%; display: grid; gap: 12px; }
+  #menu h1 { margin: 0; font-size: clamp(28px, 6vw, 44px); font-weight: 800; letter-spacing: 0.02em; line-height: 1; text-wrap: balance; }
+  #menu h1 em { font-style: normal; color: var(--accent); }
+  #menu p { margin: 0; color: var(--dim); font-size: 14px; line-height: 1.4; max-width: 60ch; }
+  .opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .opt label { display: block; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); margin-bottom: 4px; }
+  .seg { display: flex; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; overflow: hidden; }
+  .seg button { flex: 1; background: transparent; color: var(--ink); border: 0; padding: 8px 4px; font: 600 13px var(--font-ui); }
+  .seg button.sel { background: var(--accent); color: #1a1a1a; }
+  .seg button:focus-visible, #go:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  #sens { width: 100%; accent-color: var(--accent); }
+  #go { justify-self: start; background: var(--accent); color: #1a1a1a; border: 0; border-radius: 8px; padding: 12px 28px; font: 800 18px var(--font-ui); letter-spacing: 0.06em; }
+  .spec { font-size: 12px; color: var(--dim); line-height: 1.5; }
+  @media (max-height: 430px) { #menu .card { gap: 8px; } #menu p.long { display: none; } .pedal { height: 120px; } #gasP { height: 140px; } #upBtn { bottom: calc(110px + env(safe-area-inset-bottom, 0px)); } #dnBtn { bottom: calc(66px + env(safe-area-inset-bottom, 0px)); } #hbBtn { height: 48px; } }
+  @media (max-aspect-ratio: 1/1) {
+    #dash { top: calc(112px + env(safe-area-inset-top, 0px)); }
+    #topbtns { top: calc(108px + env(safe-area-inset-top, 0px)); }
+    #steerzone { width: 52%; }
+  }
+  @media (prefers-reduced-motion: reduce) { #msg { transition: none; } }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700;800&display=swap">
+
+<div id="view"></div>
+
+<div class="hud" id="timing">
+  <div class="cur" id="tCur">0:00.000</div>
+  <div class="row">Last <b id="tLast">–</b></div>
+  <div class="row">Best <b id="tBest">–</b></div>
+  <div class="row">Lap <b id="tLap">0</b></div>
+</div>
+<canvas class="hud" id="minimap" width="264" height="184"></canvas>
+<div class="hud" id="msg"></div>
+<div class="hud" id="dash">
+  <div class="top"><div><div id="spd">0</div><div class="unit">km/h</div></div><div><div id="gear">N</div><div class="unit" id="rpmTxt">0 rpm</div></div></div>
+  <div id="rpmbar"><div id="rpmfill"></div></div>
+  <div id="tyres"><i id="ty0"></i><i id="ty1"></i><i id="ty2"></i><i id="ty3"></i></div>
+  <div id="steerind"><div id="steerdot"></div></div>
+  <div id="aids"><span id="aAbs">ABS</span><span id="aTc">TC</span><span id="aEsc">ESC</span></div>
+</div>
+
+<div class="ctl" id="steerzone"></div>
+<div id="touchring"></div>
+<div id="steerhint">Drag left / right to steer</div>
+<div class="ctl" id="pedals">
+  <div class="pedal" id="brakeP"><div class="fill"></div><div class="lbl">BRAKE</div></div>
+  <div class="pedal" id="gasP"><div class="fill"></div><div class="lbl">GAS</div></div>
+</div>
+<button class="btn ctl" id="upBtn" aria-label="Shift up">▲</button>
+<button class="btn ctl" id="dnBtn" aria-label="Shift down">▼</button>
+<button class="btn ctl" id="hbBtn">HAND<br>BRAKE</button>
+<div id="topbtns">
+  <button class="btn ctl" id="camBtn">CAM</button>
+  <button class="btn ctl" id="resetBtn">RESET</button>
+  <button class="btn ctl" id="menuBtn">MENU</button>
+</div>
+
+<div id="menu">
+  <div class="card">
+    <h1>Redline <em>Circuit</em></h1>
+    <p>A 1,250 kg rear-drive coupe with 207 Nm, a six-speed box and a limited-slip diff on a 2.5 km circuit. Tyres, weight transfer, wheelspin and lock-ups are simulated at 1,000 steps per second.</p>
+    <p class="long">Hold your phone sideways. Drag anywhere on the left half to steer. The pedals are analog: touch higher on a pedal to press it harder. The four bars under the speedo show tyre grip (green has margin, yellow is at the limit, red is sliding).</p>
+    <div class="opts">
+      <div class="opt"><label>Driving aids</label><div class="seg" data-key="aids"><button data-v="full">Full</button><button data-v="sport">Sport</button><button data-v="off">Off</button></div></div>
+      <div class="opt"><label>Gearbox</label><div class="seg" data-key="box"><button data-v="auto">Auto</button><button data-v="manual">Manual</button></div></div>
+      <div class="opt"><label for="sens">Steering sensitivity</label><input type="range" id="sens" min="0.5" max="1.6" step="0.05"></div>
+    </div>
+    <div class="spec" id="aidsDesc"></div>
+    <button id="go">DRIVE</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="physics.js"></script>
+<script src="track.js"></script>
+<script src="game.js"></script>
